@@ -47,11 +47,6 @@ async function fetchLumaEvents() {
         continue;
       }
 
-      console.log(
-        `Events for Place API ID ${place.discplaceApiId}:`,
-        eventJson.entries.map(e => e.event.api_id)
-      );
-
       const requiredEventApiIds = eventJson.entries.map(entry => entry.event.api_id);
       eventApiIds = eventApiIds.concat(requiredEventApiIds);
     }
@@ -98,9 +93,6 @@ async function fetchLumaEvents() {
         filteredEvents.push(eventData);
       }
     }
-
-    console.log("Required events:", filteredEvents);
-    console.log("Filtered Events length:", filteredEvents.length);
 
     return filteredEvents;
 

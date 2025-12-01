@@ -1,8 +1,11 @@
 require('dotenv').config();
-const { scrapeCryptoNomadsEvents } = require('./index');
-const { fetchLumaEvents } = require('./luma-scraper');
-const supabase = require('./supabaseClient');
-const { appendRow, readRows, updateRow, getSheetNames, addSheet } = require('./sheetsClient');
+const supabase = require('../config/supabase');
+const { appendRow, readRows, updateRow, getSheetNames, addSheet } = require('../config/sheets');
+const { scrapeCryptoNomadsEvents } = require('./cryptoNomads');
+const { fetchLumaEvents } = require('./luma');
+const { normalizeUrl, nullIfEmpty } = require('../utils/helpers');
+const { generateUrlVariations } = require('../utils/urlUtils');
+const { getCountryFromPlace } = require('./geo');
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
@@ -39,8 +42,7 @@ function getCountryId(countryName) {
   let id = countriesMap.get(countryName.toLowerCase());
   if (id) return id;
   
-  // Try partial match or common mappings if needed (simple version for now)
-  // e.g., "USA" -> "United States"
+  // Try partial match or common mappings
   if (countryName.toLowerCase() === 'usa' || countryName.toLowerCase() === 'us') {
       return countriesMap.get('united states');
   }
@@ -57,8 +59,6 @@ function inferCategories(text) {
     }
   });
   
-  // Default to 'Conference' if nothing else found and it looks like one? 
-  // For now, just return what we find.
   return ids;
 }
 
@@ -72,20 +72,64 @@ function inferDomains(text) {
     }
   });
   
-  // Special case for "Ethereum" -> "ETHGlobal" or similar if needed
-  // The user listed "ETHGlobal" as a domain.
   if (lowerText.includes('ethglobal')) {
       const ethId = domainsMap.get('ethglobal');
       if (ethId && !ids.includes(ethId)) ids.push(ethId);
   }
   
   return ids;
+  return ids;
+}
+
+async function findExistingEvent(event) {
+    const url = event.event_url || event.url;
+    const name = event.name;
+    const start = event.start_date || event.start_at || event.start_date_time;
+    const end = event.end_date || event.end_at || event.end_date_time;
+
+    // 1. Check by URL variations
+    if (url) {
+        const variations = generateUrlVariations(url);
+        // We use overlaps to check if any of the variations exist in the links array
+        const { data: existingUrl, error } = await supabase
+            .from('events')
+            .select('id')
+            .overlaps('links', variations)
+            .maybeSingle();
+        
+        if (existingUrl) return existingUrl.id;
+    }
+
+    // 2. Check by Name + Start + End
+    if (name && start && end) {
+        const { data: existingDetails } = await supabase
+            .from('events')
+            .select('id')
+            .eq('name', name)
+            .eq('start_date_time', start)
+            .eq('end_date_time', end)
+            .maybeSingle();
+        
+        if (existingDetails) return existingDetails.id;
+    }
+
+    return null;
 }
 
 async function insertEventWithRelations(event) {
     // 1. Prepare Event Data
-    const countryId = getCountryId(event.country);
+    let countryId = getCountryId(event.country);
     
+    // Fallback to Geoapify if country is missing but location exists
+    if (!countryId && event.location) {
+        console.log(`Country missing for ${event.name}, trying Geoapify with location: ${event.location}`);
+        const fetchedCountry = await getCountryFromPlace(event.location);
+        if (fetchedCountry) {
+            console.log(`Geoapify found country: ${fetchedCountry}`);
+            countryId = getCountryId(fetchedCountry);
+        }
+    }
+
     // Map venue_type
     let venueType = 'in_person';
     if (event.venue_type) venueType = event.venue_type;
@@ -115,9 +159,9 @@ async function insertEventWithRelations(event) {
         venue_type: venueType,
         start_date_time: event.start_date || event.start_at,
         end_date_time: event.end_date || event.end_at,
-        links: links,
-        socials: socials,
-        communities: [], // Default empty
+        links: nullIfEmpty(links),
+        socials: nullIfEmpty(socials),
+        communities: null, // Default null
         created_at: new Date(),
         updated_at: new Date(),
         has_timezone: false // Default
@@ -167,22 +211,12 @@ async function syncCryptoNomads() {
   console.log(`Found ${events.length} events from Crypto-Nomads.`);
 
   for (const event of events) {
-    // Check if exists in Supabase (check by name or link? User said event_url)
-    // But links is an array now. We need to check if the array contains the url.
-    // Supabase array contains check: .contains('links', [url])
-    
-    const { data: existing, error } = await supabase
-      .from('events')
-      .select('id')
-      .contains('links', [event.event_url])
-      .maybeSingle();
+    const normalizedUrl = normalizeUrl(event.event_url);
+    if (!normalizedUrl) continue;
 
-    if (error) {
-      console.error('Error checking Supabase for event:', event.event_url, error);
-      continue;
-    }
+    const existingId = await findExistingEvent(event);
 
-    if (!existing) {
+    if (!existingId) {
       console.log(`Inserting new event: ${event.name}`);
       await insertEventWithRelations(event);
     } else {
@@ -203,17 +237,9 @@ async function syncLumaToSheet() {
 
   try {
     const sheetNames = await getSheetNames(SPREADSHEET_ID);
-    console.log('Available Sheets:', sheetNames);
-    
     const existingSheet = sheetNames.find(s => s.toLowerCase() === SHEET_NAME.toLowerCase());
     
-    if (existingSheet) {
-        console.log(`Using existing sheet: ${existingSheet}`);
-        // Use the actual casing from the sheet
-        // But SHEET_NAME is const, so we can't reassign it easily unless we change logic.
-        // However, A1 notation is usually case insensitive for sheet names?
-        // Let's just proceed. If we need to use the exact name, we might need to pass it to readRows.
-    } else {
+    if (!existingSheet) {
         console.log(`Sheet "${SHEET_NAME}" not found. Creating it...`);
         await addSheet(SPREADSHEET_ID, SHEET_NAME);
     }
@@ -238,19 +264,16 @@ async function syncLumaToSheet() {
     if (!eventUrl) continue;
 
     // Check Supabase
-    const { data: existingInDb } = await supabase
-      .from('events')
-      .select('id')
-      .contains('links', [eventUrl])
-      .maybeSingle();
+    // Check Supabase
+    const existingInDbId = await findExistingEvent(event);
 
-    if (existingInDb) {
+    if (existingInDbId) {
       console.log(`Luma event already in Supabase: ${event.name}`);
       continue;
     }
 
     if (existingUrls.has(eventUrl)) {
-      console.log(`Luma event already in Sheet: ${event.name}`);
+      // console.log(`Luma event already in Sheet: ${event.name}`);
       continue;
     }
 
@@ -262,8 +285,8 @@ async function syncLumaToSheet() {
       event.location, // City/State
       event.country,  // Country
       eventUrl,
-      'FALSE',
-      'FALSE'
+      'None', // Approve
+      'FALSE' // Synced
     ];
 
     await appendRow(SPREADSHEET_ID, SHEET_NAME, rowValues);
@@ -281,6 +304,7 @@ async function syncSheetToSupabase() {
     // Name, Start, End, Location, Country, URL, Approve, Synced
     const [name, start_at, end_at, location, country, url, approve, synced] = row;
 
+    // Check if approved is TRUE (case insensitive) and not yet synced
     if (approve && approve.toUpperCase() === 'TRUE' && synced !== 'TRUE') {
       console.log(`Syncing approved event from sheet: ${name}`);
       
@@ -291,25 +315,35 @@ async function syncSheetToSupabase() {
         location,
         country,
         event_url: url,
-        venue_type: 'in_person', // Default for now, maybe add column later
-        socials: [] // Sheet doesn't have socials column yet
+        venue_type: 'in_person', 
+        socials: [] 
       };
 
-      await insertEventWithRelations(eventObj);
+      const existingId = await findExistingEvent(eventObj);
+      if (existingId) {
+          console.log(`Event already synced/exists in Supabase: ${name} (ID: ${existingId})`);
+      } else {
+          await insertEventWithRelations(eventObj);
+      }
 
       // Update row to mark as synced
+      // We need to preserve the other columns.
+      // row is array of values.
+      // We need to construct the full row to update.
+      // Actually updateRow takes values array.
       const newRow = [...row];
+      // Ensure we have enough elements
+      while (newRow.length < 8) newRow.push('');
       newRow[7] = 'TRUE'; // Synced column index 7
+      
       await updateRow(SPREADSHEET_ID, SHEET_NAME, i, newRow);
     }
   }
 }
 
-async function main() {
-  await loadMetadata();
-  await syncCryptoNomads();
-  await syncLumaToSheet();
-  await syncSheetToSupabase();
-}
-
-main().catch(console.error);
+module.exports = {
+  loadMetadata,
+  syncCryptoNomads,
+  syncLumaToSheet,
+  syncSheetToSupabase
+};
