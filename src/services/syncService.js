@@ -36,6 +36,32 @@ async function loadMetadata() {
   else domains.forEach(d => domainsMap.set(d.name.toLowerCase(), d.id));
   
   console.log(`Loaded ${countriesMap.size} countries, ${categoriesMap.size} categories, ${domainsMap.size} domains.`);
+  console.log(`Loaded ${countriesMap.size} countries, ${categoriesMap.size} categories, ${domainsMap.size} domains.`);
+}
+
+function normalizeDate(d) {
+    if (!d) return null;
+    
+    // If it's a string and looks like YYYY-MM-DD, just return that part
+    // This avoids timezone shifting issues when parsing "YYYY-MM-DDTHH:mm:ss" (Local) vs "YYYY-MM-DD" (UTC)
+    if (typeof d === 'string') {
+        const match = d.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (match) return match[1];
+    }
+
+    try {
+        // Return YYYY-MM-DD
+        return new Date(d).toISOString().split('T')[0];
+    } catch (e) {
+        return d;
+    }
+}
+
+function generateEventKey(name, start, end) {
+    const n = name ? name.toLowerCase().trim() : '';
+    const s = normalizeDate(start) || '';
+    const e = normalizeDate(end) || '';
+    return `${n}|${s}|${e}`;
 }
 
 async function loadExistingEvents() {
@@ -59,9 +85,8 @@ async function loadExistingEvents() {
           if (link) existingEventsUrlMap.set(link, e.id);
       }
       
-      // Map by details
       if (e.name && e.start_date_time && e.end_date_time) {
-          const key = `${e.name}|${e.start_date_time}|${e.end_date_time}`;
+          const key = generateEventKey(e.name, e.start_date_time, e.end_date_time);
           existingEventsDetailsMap.set(key, e.id);
       }
   });
@@ -131,8 +156,9 @@ async function findExistingEvent(event) {
 
     // 2. Check Details
     if (name && start && end) {
-        const key = `${name}|${start}|${end}`;
+        const key = generateEventKey(name, start, end);
         if (existingEventsDetailsMap.has(key)) {
+            // console.log(`[Dedup] Found match by details: ${key}`);
             return existingEventsDetailsMap.get(key);
         }
     }
@@ -211,7 +237,7 @@ async function insertEventWithRelations(event) {
         existingEventsUrlMap.set(links[0], eventId);
     }
     if (eventData.name && eventData.start_date_time && eventData.end_date_time) {
-        const key = `${eventData.name}|${eventData.start_date_time}|${eventData.end_date_time}`;
+        const key = generateEventKey(eventData.name, eventData.start_date_time, eventData.end_date_time);
         existingEventsDetailsMap.set(key, eventId);
     }
 
