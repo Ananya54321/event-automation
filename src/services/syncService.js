@@ -10,27 +10,23 @@ const { getCountryFromPlace } = require('./geo');
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 
-// Cache for metadata
-let countriesMap = new Map(); // name -> id
-let categoriesMap = new Map(); // name -> id
-let domainsMap = new Map(); // name -> id
-let existingEventsUrlMap = new Map(); // url -> id
-let existingEventsDetailsMap = new Map(); // name|start|end -> id
+let countriesMap = new Map();  
+let categoriesMap = new Map(); 
+let domainsMap = new Map();  
+let existingEventsUrlMap = new Map();  
+let existingEventsDetailsMap = new Map(); 
 
 async function loadMetadata() {
   console.log('Loading metadata...');
   
-  // Load Countries
   const { data: countries, error: cError } = await supabase.from('countries').select('id, name');
   if (cError) console.error('Error loading countries:', cError);
   else countries.forEach(c => countriesMap.set(c.name.toLowerCase(), c.id));
 
-  // Load Categories
   const { data: categories, error: catError } = await supabase.from('event_categories').select('id, name');
   if (catError) console.error('Error loading categories:', catError);
   else categories.forEach(c => categoriesMap.set(c.name.toLowerCase(), c.id));
 
-  // Load Domains
   const { data: domains, error: dError } = await supabase.from('event_domains').select('id, name');
   if (dError) console.error('Error loading domains:', dError);
   else domains.forEach(d => domainsMap.set(d.name.toLowerCase(), d.id));
@@ -42,15 +38,12 @@ async function loadMetadata() {
 function normalizeDate(d) {
     if (!d) return null;
     
-    // If it's a string and looks like YYYY-MM-DD, just return that part
-    // This avoids timezone shifting issues when parsing "YYYY-MM-DDTHH:mm:ss" (Local) vs "YYYY-MM-DD" (UTC)
     if (typeof d === 'string') {
         const match = d.match(/^(\d{4}-\d{2}-\d{2})/);
         if (match) return match[1];
     }
 
     try {
-        // Return YYYY-MM-DD
         return new Date(d).toISOString().split('T')[0];
     } catch (e) {
         return d;
@@ -79,7 +72,6 @@ async function loadExistingEvents() {
   existingEventsDetailsMap.clear();
 
   events.forEach(e => {
-      // Map by 0th link
       if (e.links && Array.isArray(e.links) && e.links.length > 0) {
           const link = e.links[0];
           if (link) existingEventsUrlMap.set(link, e.id);
@@ -95,11 +87,9 @@ async function loadExistingEvents() {
 
 function getCountryId(countryName) {
   if (!countryName) return null;
-  // Try exact match
   let id = countriesMap.get(countryName.toLowerCase());
   if (id) return id;
   
-  // Try partial match or common mappings
   if (countryName.toLowerCase() === 'usa' || countryName.toLowerCase() === 'us') {
       return countriesMap.get('united states');
   }
@@ -144,7 +134,6 @@ async function findExistingEvent(event) {
     const start = event.start_date || event.start_at || event.start_date_time;
     const end = event.end_date || event.end_at || event.end_date_time;
 
-    // 1. Check URL variations against the map keys
     if (url) {
         const variations = generateUrlVariations(url);
         for (const v of variations) {
@@ -154,11 +143,9 @@ async function findExistingEvent(event) {
         }
     }
 
-    // 2. Check Details
     if (name && start && end) {
         const key = generateEventKey(name, start, end);
         if (existingEventsDetailsMap.has(key)) {
-            // console.log(`[Dedup] Found match by details: ${key}`);
             return existingEventsDetailsMap.get(key);
         }
     }
@@ -167,10 +154,8 @@ async function findExistingEvent(event) {
 }
 
 async function insertEventWithRelations(event) {
-    // 1. Prepare Event Data
     let countryId = getCountryId(event.country);
     
-    // Fallback to Geoapify if country is missing but location exists
     if (!countryId && event.location) {
         console.log(`Country missing for ${event.name}, trying Geoapify with location: ${event.location}`);
         const fetchedCountry = await getCountryFromPlace(event.location);
@@ -180,7 +165,6 @@ async function insertEventWithRelations(event) {
         }
     }
 
-    // Map venue_type
     let venueType = 'in_person';
     if (event.venue_type) venueType = event.venue_type;
     else if (event.location_type) {
@@ -188,7 +172,6 @@ async function insertEventWithRelations(event) {
         else if (event.location_type === 'hybrid') venueType = 'hybrid';
     }
 
-    // Prepare arrays
     const links = event.event_url ? [event.event_url] : [];
     const socials = [];
     if (event.socials) {
@@ -211,13 +194,12 @@ async function insertEventWithRelations(event) {
         end_date_time: event.end_date || event.end_at,
         links: nullIfEmpty(links),
         socials: nullIfEmpty(socials),
-        communities: null, // Default null
+        communities: null, 
         created_at: new Date(),
         updated_at: new Date(),
-        has_timezone: false // Default
+        has_timezone: false  
     };
 
-    // 2. Insert Event
     const { data: insertedEvent, error } = await supabase
         .from('events')
         .insert([eventData])
@@ -232,7 +214,6 @@ async function insertEventWithRelations(event) {
     const eventId = insertedEvent.id;
     console.log(`Inserted event ${event.name} (ID: ${eventId})`);
 
-    // Update Cache
     if (links.length > 0) {
         existingEventsUrlMap.set(links[0], eventId);
     }
@@ -241,7 +222,6 @@ async function insertEventWithRelations(event) {
         existingEventsDetailsMap.set(key, eventId);
     }
 
-    // 3. Infer and Insert Categories
     const categoryIds = inferCategories(event.name + ' ' + (event.description || ''));
     if (categoryIds.length > 0) {
         const catInserts = categoryIds.map(catId => ({
@@ -252,7 +232,6 @@ async function insertEventWithRelations(event) {
         if (catError) console.error('Error inserting categories:', catError);
     }
 
-    // 4. Infer and Insert Domains
     const domainIds = inferDomains(event.name + ' ' + (event.description || ''));
     if (domainIds.length > 0) {
         const domInserts = domainIds.map(domId => ({
@@ -310,22 +289,18 @@ async function syncLumaToSheet() {
   }
 
   const rows = await readRows(SPREADSHEET_ID, SHEET_NAME);
-  // Headers: Name, Start Date, End Date, Location, Country, URL, Approve, Synced
   
   const header = rows[0];
   if (!header || header.length === 0) {
       await appendRow(SPREADSHEET_ID, SHEET_NAME, ['Name', 'Start Date', 'End Date', 'Location', 'Country', 'URL', 'Approve', 'Synced']);
   }
 
-  // URL is now at index 5 (F column)
   const existingUrls = new Set(rows.map(row => row[5])); 
 
   for (const event of events) {
     const eventUrl = event.url;
     if (!eventUrl) continue;
 
-    // Check Supabase
-    // Check Supabase
     const existingInDbId = await findExistingEvent(event);
 
     if (existingInDbId) {
@@ -334,7 +309,6 @@ async function syncLumaToSheet() {
     }
 
     if (existingUrls.has(eventUrl)) {
-      // console.log(`Luma event already in Sheet: ${event.name}`);
       continue;
     }
 
@@ -343,11 +317,11 @@ async function syncLumaToSheet() {
       event.name,
       event.start_at,
       event.end_at,
-      event.location, // City/State
-      event.country,  // Country
+      event.location,  
+      event.country,   
       eventUrl,
-      'None', // Approve
-      'FALSE' // Synced
+      'None',  
+      'FALSE'  
     ];
 
     await appendRow(SPREADSHEET_ID, SHEET_NAME, rowValues);
@@ -361,13 +335,10 @@ async function syncSheetToSupabase() {
   await loadExistingEvents();
 
   const rows = await readRows(SPREADSHEET_ID, SHEET_NAME);
-  // Skip header
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    // Name, Start, End, Location, Country, URL, Approve, Synced
     const [name, start_at, end_at, location, country, url, approve, synced] = row;
 
-    // Check if approved is TRUE (case insensitive) and not yet synced
     if (approve && approve.toUpperCase() === 'TRUE' && synced !== 'TRUE') {
       console.log(`Syncing approved event from sheet: ${name}`);
       
@@ -389,15 +360,9 @@ async function syncSheetToSupabase() {
           await insertEventWithRelations(eventObj);
       }
 
-      // Update row to mark as synced
-      // We need to preserve the other columns.
-      // row is array of values.
-      // We need to construct the full row to update.
-      // Actually updateRow takes values array.
       const newRow = [...row];
-      // Ensure we have enough elements
       while (newRow.length < 8) newRow.push('');
-      newRow[7] = 'TRUE'; // Synced column index 7
+      newRow[7] = 'TRUE'; 
       
       await updateRow(SPREADSHEET_ID, SHEET_NAME, i, newRow);
     }

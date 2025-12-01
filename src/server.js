@@ -9,7 +9,6 @@ app.get('/', (req, res) => {
   res.send('Scraper Service is Running');
 });
 
-// Manual Triggers for Debugging/Testing
 app.get('/trigger/daily', async (req, res) => {
   console.log('Manual trigger: Daily Sync');
   res.send('Triggered Daily Sync (Check logs)');

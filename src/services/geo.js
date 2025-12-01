@@ -1,10 +1,5 @@
 require('dotenv').config();
 
-/**
- * Fetches country information for a given place name using Geoapify.
- * @param {string} place 
- * @returns {Promise<string|null>} Country name or null
- */
 async function getCountryFromPlace(place) {
   if (!place) return null;
   

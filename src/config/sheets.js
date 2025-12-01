@@ -1,11 +1,7 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const path = require('path');
-
-// Expecting GOOGLE_APPLICATION_CREDENTIALS in .env to point to the JSON key file
-// or the user can provide the path directly here if they prefer.
-// For now, we'll assume standard Google Auth discovery.
-
+ 
 async function getSheetsClient() {
   const auth = new google.auth.GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
@@ -17,7 +13,7 @@ async function getSheetsClient() {
 
 async function appendRow(spreadsheetId, sheetName, values) {
   const sheets = await getSheetsClient();
-  const range = `${sheetName}!A:Z`; // Append to the end
+  const range = `${sheetName}!A:Z`;  
   const resource = {
     values: [values],
   };
@@ -54,7 +50,6 @@ async function readRows(spreadsheetId, sheetName) {
 
 async function updateRow(spreadsheetId, sheetName, rowIndex, values) {
     const sheets = await getSheetsClient();
-    // rowIndex is 0-based index of the row in the sheet (but A1 notation is 1-based)
     const rowNum = rowIndex + 1; 
     const range = `${sheetName}!A${rowNum}`;
     

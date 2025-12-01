@@ -4,15 +4,12 @@ const { syncCryptoNomads, syncLumaToSheet, syncSheetToSupabase, loadMetadata } =
 function startCronJobs() {
   console.log('Initializing Cron Jobs...');
 
-  // Load metadata once on start
   loadMetadata().catch(console.error);
 
-  // Daily Sync (CryptoNomads & Luma to Sheet)
-  // Run at 00:00 every day
-  cron.schedule('0 * * * *', async () => {
+  cron.schedule('0 0 * * *', async () => {
     console.log('Running Daily Sync...');
     try {
-      await loadMetadata(); // Refresh metadata daily
+      await loadMetadata(); 
       await syncCryptoNomads();
       await syncLumaToSheet();
       console.log('Daily Sync Completed.');
@@ -21,8 +18,6 @@ function startCronJobs() {
     }
   });
 
-  // Frequent Sync (Sheet to Supabase)
-  // Run every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
     console.log('Running Sheet Sync...');
     try {

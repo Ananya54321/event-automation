@@ -12,7 +12,7 @@ async function resetSynced() {
   console.log('Resetting Synced for:', lastRow[0]);
   
   const newRow = [...lastRow];
-  newRow[7] = 'FALSE'; // Set Synced to FALSE
+  newRow[7] = 'FALSE'; 
   
   await updateRow(SPREADSHEET_ID, SHEET_NAME, lastRowIndex, newRow);
   console.log('Reset complete.');
