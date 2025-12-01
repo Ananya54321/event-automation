@@ -14,6 +14,8 @@ const SHEET_NAME = process.env.SHEET_NAME || 'Sheet1';
 let countriesMap = new Map(); // name -> id
 let categoriesMap = new Map(); // name -> id
 let domainsMap = new Map(); // name -> id
+let existingEventsUrlMap = new Map(); // url -> id
+let existingEventsDetailsMap = new Map(); // name|start|end -> id
 
 async function loadMetadata() {
   console.log('Loading metadata...');
@@ -34,6 +36,36 @@ async function loadMetadata() {
   else domains.forEach(d => domainsMap.set(d.name.toLowerCase(), d.id));
   
   console.log(`Loaded ${countriesMap.size} countries, ${categoriesMap.size} categories, ${domainsMap.size} domains.`);
+}
+
+async function loadExistingEvents() {
+  console.log('Loading existing events from Supabase...');
+  const { data: events, error } = await supabase
+      .from('events')
+      .select('id, name, start_date_time, end_date_time, links');
+  
+  if (error) {
+      console.error('Error loading existing events:', error);
+      return;
+  }
+
+  existingEventsUrlMap.clear();
+  existingEventsDetailsMap.clear();
+
+  events.forEach(e => {
+      // Map by 0th link
+      if (e.links && Array.isArray(e.links) && e.links.length > 0) {
+          const link = e.links[0];
+          if (link) existingEventsUrlMap.set(link, e.id);
+      }
+      
+      // Map by details
+      if (e.name && e.start_date_time && e.end_date_time) {
+          const key = `${e.name}|${e.start_date_time}|${e.end_date_time}`;
+          existingEventsDetailsMap.set(key, e.id);
+      }
+  });
+  console.log(`Loaded ${events.length} existing events.`);
 }
 
 function getCountryId(countryName) {
@@ -87,32 +119,24 @@ async function findExistingEvent(event) {
     const start = event.start_date || event.start_at || event.start_date_time;
     const end = event.end_date || event.end_at || event.end_date_time;
 
-    // 1. Check by URL variations
+    // 1. Check URL variations against the map keys
     if (url) {
         const variations = generateUrlVariations(url);
-        // We use overlaps to check if any of the variations exist in the links array
-        const { data: existingUrl, error } = await supabase
-            .from('events')
-            .select('id')
-            .overlaps('links', variations)
-            .maybeSingle();
-        
-        if (existingUrl) return existingUrl.id;
+        for (const v of variations) {
+            if (existingEventsUrlMap.has(v)) {
+                return existingEventsUrlMap.get(v);
+            }
+        }
     }
 
-    // 2. Check by Name + Start + End
+    // 2. Check Details
     if (name && start && end) {
-        const { data: existingDetails } = await supabase
-            .from('events')
-            .select('id')
-            .eq('name', name)
-            .eq('start_date_time', start)
-            .eq('end_date_time', end)
-            .maybeSingle();
-        
-        if (existingDetails) return existingDetails.id;
+        const key = `${name}|${start}|${end}`;
+        if (existingEventsDetailsMap.has(key)) {
+            return existingEventsDetailsMap.get(key);
+        }
     }
-
+    
     return null;
 }
 
@@ -182,6 +206,15 @@ async function insertEventWithRelations(event) {
     const eventId = insertedEvent.id;
     console.log(`Inserted event ${event.name} (ID: ${eventId})`);
 
+    // Update Cache
+    if (links.length > 0) {
+        existingEventsUrlMap.set(links[0], eventId);
+    }
+    if (eventData.name && eventData.start_date_time && eventData.end_date_time) {
+        const key = `${eventData.name}|${eventData.start_date_time}|${eventData.end_date_time}`;
+        existingEventsDetailsMap.set(key, eventId);
+    }
+
     // 3. Infer and Insert Categories
     const categoryIds = inferCategories(event.name + ' ' + (event.description || ''));
     if (categoryIds.length > 0) {
@@ -207,6 +240,7 @@ async function insertEventWithRelations(event) {
 
 async function syncCryptoNomads() {
   console.log('Starting Crypto-Nomads Sync...');
+  await loadExistingEvents();
   const events = await scrapeCryptoNomadsEvents();
   console.log(`Found ${events.length} events from Crypto-Nomads.`);
 
@@ -227,6 +261,7 @@ async function syncCryptoNomads() {
 
 async function syncLumaToSheet() {
   console.log('Starting Luma Sync to Sheet...');
+  await loadExistingEvents();
   const events = await fetchLumaEvents();
   console.log(`Found ${events.length} events from Luma.`);
 
@@ -296,6 +331,8 @@ async function syncLumaToSheet() {
 async function syncSheetToSupabase() {
   console.log('Starting Sheet to Supabase Sync...');
   if (!SPREADSHEET_ID) return;
+  
+  await loadExistingEvents();
 
   const rows = await readRows(SPREADSHEET_ID, SHEET_NAME);
   // Skip header
