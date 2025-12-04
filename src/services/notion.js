@@ -51,10 +51,10 @@ async function createEvent(databaseId, eventData) {
       },
       'Link': {
         files: [
-            {
-                name: 'Event Link',
+            { 
+                name: eventData.url ? normalizeUrl(eventData.url) : 'Event Link', 
                 external: {
-                    url: eventData.url || 'https://example.com' 
+                    url: eventData.url ? eventData.url.split('?')[0] : 'https://example.com' 
                 }
             }
         ]
@@ -80,6 +80,33 @@ async function createEvent(databaseId, eventData) {
           }
       }
     };
+ 
+    if (eventData.category) {
+        const options = Array.isArray(eventData.category) ? eventData.category : [{ name: eventData.category }];
+        properties['Category (optional)'] = { multi_select: options };
+    }
+    if (eventData.theme) {
+        const options = Array.isArray(eventData.theme) ? eventData.theme : [{ name: eventData.theme }];
+        properties['Theme (optional)'] = { multi_select: options };
+    }
+    if (eventData.ecosystem_focus) {
+        properties['Ecosystem Focus'] = { select: { name: eventData.ecosystem_focus } };
+    }
+    if (eventData.community) {
+         properties['Community (optional)'] = { url: eventData.community };
+    }
+    if (eventData.social_optional) {
+        properties['Social (optional)'] = { url: eventData.social_optional };
+    }
+
+    if (eventData.logo_url) {
+        properties['Logo'] = {
+            files: [{
+                name: 'Logo',
+                external: { url: eventData.logo_url }
+            }]
+        };
+    }
 
     if (eventData.hasOwnProperty('approved')) {
         properties['Approval Status'] = {
@@ -109,6 +136,10 @@ async function createEvent(databaseId, eventData) {
             properties['Telegram'] = { url: telegramUrl };
         }
     }
+    
+    if (eventData.socials) {
+        console.log(`Processing socials for ${eventData.name}:`, JSON.stringify(eventData.socials));
+    }
  
     await notion.pages.create({
       parent: { database_id: databaseId },
@@ -126,12 +157,27 @@ async function getApprovedEvents(databaseId) {
     const response = await notion.databases.query({
       database_id: databaseId,
       filter: {
-        property: 'Approval Status',
-        checkbox: {
-          equals: true,
-        },
+        and: [
+            {
+                property: 'Approval Status',
+                checkbox: {
+                    equals: true,
+                },
+            },
+            {
+                property: 'Sync Status',
+                status: {
+                    does_not_equal: 'Done'
+                }
+            }
+        ]
       },
     });
+
+    if (response.results.length > 0) {
+        console.log('DEBUG: Notion Page Properties Keys:', Object.keys(response.results[0].properties));
+        console.log('DEBUG: Notion Page Properties Structure (Sample):', JSON.stringify(response.results[0].properties, null, 2));
+    }
 
     return response.results.map(page => {
         const props = page.properties;
@@ -153,7 +199,14 @@ async function getApprovedEvents(databaseId) {
             end_at: props['End']?.date?.start || null,
             location: props['Location (Optional)']?.rich_text[0]?.text?.content || '',
             venue_type: props['Venue Type']?.select?.name || 'IRL',
-            socials: socials
+            category: props['Category (optional)']?.multi_select?.map(opt => ({ name: opt.name })) || [],
+            theme: props['Theme (optional)']?.multi_select?.map(opt => ({ name: opt.name })) || [],
+            ecosystem_focus: props['Ecosystem Focus']?.select?.name,
+            community: props['Community (optional)']?.url,
+            social_optional: props['Social (optional)']?.url,
+            logo_url: props['Logo']?.files[0]?.external?.url,
+            socials: socials,
+            source: 'NotionApprovalDB'  
         };
     });
   } catch (error) {
@@ -174,9 +227,28 @@ async function deletePage(pageId) {
   }
 }
 
+async function updateSyncStatus(pageId) {
+    try {
+        await notion.pages.update({
+            page_id: pageId,
+            properties: {
+                'Sync Status': {
+                    status: {
+                        name: 'Done'
+                    }
+                }
+            }
+        });
+        console.log(`Updated Sync Status to Done for page ${pageId}`);
+    } catch (error) {
+        console.error(`Error updating Sync Status for page ${pageId}:`, error.message);
+    }
+}
+
 module.exports = {
   getExistingLinks,
   createEvent,
   getApprovedEvents,
   deletePage,
+  updateSyncStatus
 };

@@ -1,6 +1,6 @@
 const { scrapeCryptoNomadsEvents } = require('./cryptoNomads');
 const { fetchLumaEvents } = require('./luma');
-const { getExistingLinks, createEvent, getApprovedEvents, deletePage } = require('./notion');
+const { getExistingLinks, createEvent, getApprovedEvents, updateSyncStatus } = require('./notion');
 const { normalizeUrl } = require('../utils/urlUtils');
 
 const MAIN_DB_ID = process.env.NOTION_MAIN_DB_ID;
@@ -102,18 +102,11 @@ async function processApprovals() {
 
     for (const event of approvedEvents) {
          
-        await createEvent(MAIN_DB_ID, {
-            name: event.name,
-            url: event.url,
-            start_at: event.start_at,
-            end_at: event.end_at,
-            location: event.location,
-            country: event.country,
-            source: event.source, 
-            socials: event.socials
-        });
+        console.log('Syncing Event:', JSON.stringify(event, null, 2));
 
-        await deletePage(event.pageId);
+        await createEvent(MAIN_DB_ID, event);
+
+        await updateSyncStatus(event.pageId);
     }
     console.log('Approval Processing Completed.');
   } catch (error) {

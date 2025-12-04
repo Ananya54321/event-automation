@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { normalizeUrl } = require('../utils/urlUtils');
 
 const URL = 'https://cryptonomads.org/?filter=ethereum';
 
@@ -31,19 +32,34 @@ async function scrapeCryptoNomadsEvents() {
         return [];
     }
 
-    return ethereumEvents.map(event => ({
-      name: event.event,
-      country: (event.country || []).join(', '),
-      location: (event.city || []).join(', '),
-      venue_type: 'in_person',  
-      start_date: event.startDate,
-      end_date: event.endDate,
-      event_url: event.link,
-      socials: {
-        twitter: event.twitter,
-        telegram: event.telegram
+    return ethereumEvents.map(event => {
+      let venueType = 'IRL';
+      if (event.venue_type === 'virtual') venueType = 'Virtual';
+      else if (event.venue_type === 'hybrid') venueType = 'Hybrid';
+      else if (event.venue_type === 'offline') venueType = 'IRL';
+      
+      // Clean the URL using our utility, but we might want to keep the protocol for the actual link field
+      // The requirement is to strip query elements. 
+      // Let's just strip the query params from the event_url we store.
+      let cleanUrl = event.link;
+      if (cleanUrl) {
+          cleanUrl = cleanUrl.split('?')[0];
       }
-    }));
+
+      return {
+        name: event.event,
+        country: (event.country || []).join(', '),
+        location: (event.city || []).join(', '),
+        venue_type: venueType,  
+        start_date: event.startDate,
+        end_date: event.endDate,
+        event_url: cleanUrl,
+        socials: {
+          twitter: event.twitter,
+          telegram: event.telegram
+        }
+      };
+    });
 
   } catch (error) {
     console.error('Error scraping events:', error.message);

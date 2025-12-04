@@ -13,7 +13,7 @@ function startCronJobs() {
       console.error('Error in Daily Sync:', error);
     }
   });
-  cron.schedule('*/10 * * * *', async () => {
+  cron.schedule('*/5 * * * *', async () => {
     console.log('Running Approval Sync...');
     try {
       await processApprovals();
@@ -25,7 +25,7 @@ function startCronJobs() {
 
   console.log('Cron Jobs Scheduled:');
   console.log('- Daily Sync (00:00): CryptoNomads -> Main DB, Luma -> Approval DB');
-  console.log('- Frequent Sync (Every 10m): Approval DB -> Main DB');
+  console.log('- Frequent Sync (Every 5m): Approval DB -> Main DB');
 }
 
 module.exports = { startCronJobs };
