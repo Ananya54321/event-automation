@@ -3,13 +3,7 @@ const { normalizeUrl } = require('../utils/urlUtils');
 require('dotenv').config();
 
 const notion = new Client({ auth: process.env.NOTION_INTEGRATION_SECRET });
-
-/**
- * Fetch all existing URLs from a database to check for duplicates.
- * Returns a Set of NORMALIZED URLs.
- * @param {string} databaseId 
- * @returns {Promise<Set<string>>} Set of existing normalized URLs
- */
+ 
 async function getExistingLinks(databaseId) {
   let hasMore = true;
   let startCursor = undefined;
@@ -43,11 +37,6 @@ async function getExistingLinks(databaseId) {
   return existingLinks;
 }
 
-/**
- * Create a new event page in the specified database.
- * @param {string} databaseId 
- * @param {Object} eventData 
- */
 async function createEvent(databaseId, eventData) {
   try {
     const properties = {
@@ -87,19 +76,17 @@ async function createEvent(databaseId, eventData) {
       },
       'Venue Type': {
           select: {
-              name: eventData.venue_type || 'IRL' // Default to IRL if unknown, or maybe 'Hybrid'/'Virtual'
+              name: eventData.venue_type || 'IRL' 
           }
       }
     };
 
-    // Handle Approval Status
     if (eventData.hasOwnProperty('approved')) {
         properties['Approval Status'] = {
             checkbox: eventData.approved
         };
     }
 
-    // Handle Socials (Twitter)
     if (eventData.socials) {
         let twitterUrl = null;
         let telegramUrl = null;
@@ -122,11 +109,7 @@ async function createEvent(databaseId, eventData) {
             properties['Telegram'] = { url: telegramUrl };
         }
     }
-
-    // Handle other optional fields if provided in eventData
-    // Category, Theme, Ecosystem Focus, Logo, Banner image, Community, etc.
-    // Currently scrapers might not provide these, but we can map them if they do.
-    
+ 
     await notion.pages.create({
       parent: { database_id: databaseId },
       properties: properties,
@@ -137,12 +120,7 @@ async function createEvent(databaseId, eventData) {
     console.error(`Error creating event ${eventData.name} in Notion:`, error.message);
   }
 }
-
-/**
- * Fetch approved events from the Approval Database.
- * @param {string} databaseId 
- * @returns {Promise<Array>} List of approved events with their Page IDs
- */
+ 
 async function getApprovedEvents(databaseId) {
   try {
     const response = await notion.databases.query({
@@ -183,11 +161,7 @@ async function getApprovedEvents(databaseId) {
     return [];
   }
 }
-
-/**
- * Archive (delete) a page by ID.
- * @param {string} pageId 
- */
+ 
 async function deletePage(pageId) {
   try {
     await notion.pages.update({

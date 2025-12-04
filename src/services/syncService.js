@@ -15,7 +15,6 @@ async function syncCryptoNomads() {
       return;
     }
 
-    // Check both Main DB and Approval DB to avoid duplicates
     const existingMainLinks = await getExistingLinks(MAIN_DB_ID);
     const existingApprovalLinks = await getExistingLinks(APPROVAL_DB_ID);
     let newCount = 0;
@@ -78,7 +77,7 @@ async function syncLuma() {
           source: 'Luma',
           socials: event.socials,
           approved: false,
-          venue_type: event.location_type // Map location_type to venue_type if possible, or just pass it
+          venue_type: event.location_type  
         });
         newCount++;
       }
@@ -102,10 +101,7 @@ async function processApprovals() {
     console.log(`Found ${approvedEvents.length} approved events. Syncing to Main DB...`);
 
     for (const event of approvedEvents) {
-        // Double check if it already exists in Main DB (sanity check)
-        // Ideally we could cache this, but for safety let's just try to insert or check again if critical.
-        // For now, we trust the flow: Approval -> Main.
-        
+         
         await createEvent(MAIN_DB_ID, {
             name: event.name,
             url: event.url,
@@ -113,11 +109,10 @@ async function processApprovals() {
             end_at: event.end_at,
             location: event.location,
             country: event.country,
-            source: event.source, // Keep original source
+            source: event.source, 
             socials: event.socials
         });
 
-        // Delete from Approval DB after successful sync
         await deletePage(event.pageId);
     }
     console.log('Approval Processing Completed.');

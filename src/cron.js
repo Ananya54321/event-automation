@@ -3,8 +3,6 @@ const { syncCryptoNomads, syncLuma, processApprovals } = require('./services/syn
 
 function startCronJobs() {
   console.log('Initializing Cron Jobs...');
-
-  // Daily Sync at midnight
   cron.schedule('0 0 * * *', async () => {
     console.log('Running Daily Sync...');
     try {
@@ -15,8 +13,6 @@ function startCronJobs() {
       console.error('Error in Daily Sync:', error);
     }
   });
-
-  // Frequent Sync for Approvals (every 10 minutes)
   cron.schedule('*/10 * * * *', async () => {
     console.log('Running Approval Sync...');
     try {
