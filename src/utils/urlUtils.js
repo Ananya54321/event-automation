@@ -1,31 +1,25 @@
-function generateUrlVariations(url) {
-  if (!url) return [];
-
-  let base = url.trim();
-  base = base.replace(/^https?:\/\//, '');
-  base = base.replace(/^www\./, '');
+/**
+ * Normalizes a URL to its "bare" form for deduplication.
+ * Removes protocol, www, and trailing slashes.
+ * @param {string} url 
+ * @returns {string} Normalized URL
+ */
+function normalizeUrl(url) {
+  if (!url) return '';
   
-  if (base.endsWith('/')) {
-      base = base.slice(0, -1);
+  // Remove protocol (http:// or https://)
+  let normalized = url.replace(/^https?:\/\//, '');
+  
+  // Remove www.
+  normalized = normalized.replace(/^www\./, '');
+  
+  // Remove trailing slash
+  if (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
   }
-
-  const variations = new Set();
-
-  const protocols = ['https://', 'http://', ''];
-  const prefixes = ['www.', ''];
-  const suffixes = ['/', ''];
-
-  protocols.forEach(proto => {
-      prefixes.forEach(prefix => {
-          suffixes.forEach(suffix => {
-              variations.add(`${proto}${prefix}${base}${suffix}`);
-          });
-      });
-  });
-
-  return Array.from(variations);
+  
+  // Lowercase for consistent comparison
+  return normalized.toLowerCase();
 }
 
-module.exports = {
-  generateUrlVariations
-};
+module.exports = { normalizeUrl };
